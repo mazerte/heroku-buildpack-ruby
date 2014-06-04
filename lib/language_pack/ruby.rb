@@ -23,6 +23,8 @@ class LanguagePack::Ruby < LanguagePack::Base
   RBX_BASE_URL         = "http://binaries.rubini.us/heroku"
   NODE_BP_PATH         = "vendor/node/bin"
 
+  COUCHBASE_VENDOR_URL = "http://packages.couchbase.com/clients/c/libcouchbase-2.3.1.tar.gz"
+
   # detects if this is a valid Ruby app
   # @return [Boolean] true if it's a Ruby app
   def self.use?
@@ -89,6 +91,11 @@ class LanguagePack::Ruby < LanguagePack::Base
       setup_language_pack_environment
       setup_profiled
       allow_git do
+        # Install couchbase dependencies 
+        install_libcouchbase
+        run("mkdir -p /app/vendor")
+        run("cp -vR #{@build_path}/vendor/couchbase /app/vendor/couchbase")
+      
         install_bundler_in_app
         build_bundler
         create_database_yml
@@ -434,6 +441,19 @@ WARNING
         patchlevel = run("ruby -e 'puts RUBY_PATCHLEVEL'").chomp
         cache_name  = "#{DEFAULT_RUBY_VERSION}-p#{patchlevel}-default-cache"
         @fetchers[:buildpack].fetch_untar("#{cache_name}.tgz")
+      end
+    end
+  end
+
+  def install_libcouchbase
+    topic("Installing libcouchbase")
+    bin_dir = "vendor/couchbase_src"
+    FileUtils.mkdir_p bin_dir
+    Dir.chdir(bin_dir) do |dir|
+      run("curl #{COUCHBASE_VENDOR_URL} -s -o - | tar xzf -")
+      Dir.chdir('libcouchbase-2.3.1') do |dir|
+        run("./configure --prefix=#{@build_path}/vendor/couchbase --disable-examples --disable-tests --disable-couchbasemock")
+        run('make install')
       end
     end
   end
