@@ -23,9 +23,7 @@ class LanguagePack::Ruby < LanguagePack::Base
   RBX_BASE_URL         = "http://binaries.rubini.us/heroku"
   NODE_BP_PATH         = "vendor/node/bin"
 
-  LIBCOUCHBASE_VERSION = "2.3.1"
-  LIBCOUCHBASE_PATH    = "libcouchbase-#{LIBCOUCHBASE_VERSION}"
-  COUCHBASE_BASE_URL   = "http://packages.couchbase.com/clients/c"
+  COUCHBASE_VENDOR_URL = "http://packages.couchbase.com/clients/c/libcouchbase-2.3.1.tar.gz"
 
   # detects if this is a valid Ruby app
   # @return [Boolean] true if it's a Ruby app
@@ -47,7 +45,6 @@ class LanguagePack::Ruby < LanguagePack::Base
     super(build_path, cache_path)
     @fetchers[:jvm] = LanguagePack::Fetcher.new(JVM_BASE_URL)
     @fetchers[:rbx] = LanguagePack::Fetcher.new(RBX_BASE_URL)
-    @fetchers[:couchbase] = LanguagePack::Fetcher.new(COUCHBASE_BASE_URL)
   end
 
   def name
@@ -94,6 +91,11 @@ class LanguagePack::Ruby < LanguagePack::Base
       setup_language_pack_environment
       setup_profiled
       allow_git do
+        # Install couchbase dependencies 
+        install_libcouchbase
+        run("mkdir -p /app/vendor")
+        run("cp -vR #{@build_path}/vendor/couchbase /app/vendor/couchbase")
+      
         install_bundler_in_app
         build_bundler
         create_database_yml
@@ -443,15 +445,15 @@ WARNING
     end
   end
 
-  def install_libcouchbase(dir)
-    instrument "ruby.install_libcouchbase" do
-      topic("Installing libcouchbase")
-      Dir.mktmpdir("couchbase-") do |tmpdir|
-        @fetchers[:couchbase].fetch_untar("#{LIBCOUCHBASE_PATH}.tar.gz")
-        Dir.chdir(LIBCOUCHBASE_PATH) do |couch_dir|
-          run("./configure --prefix=#{dir} --disable-examples --disable-tests --disable-couchbasemock")
-          run('make install')
-        end
+  def install_libcouchbase
+    topic("Installing libcouchbase")
+    bin_dir = "vendor/couchbase_src"
+    FileUtils.mkdir_p bin_dir
+    Dir.chdir(bin_dir) do |dir|
+      run("curl #{COUCHBASE_VENDOR_URL} -s -o - | tar xzf -")
+      Dir.chdir('libcouchbase-2.3.1') do |dir|
+        run("./configure --prefix=#{@build_path}/vendor/couchbase --disable-examples --disable-tests --disable-couchbasemock")
+        run('make install')
       end
     end
   end
@@ -518,7 +520,7 @@ WARNING
 
         bundler_output = ""
         bundle_time    = nil
-        Dir.mktmpdir("build-") do |tmpdir|
+        Dir.mktmpdir("libyaml-") do |tmpdir|
           libyaml_dir = "#{tmpdir}/#{LIBYAML_PATH}"
           install_libyaml(libyaml_dir)
 
@@ -540,10 +542,7 @@ WARNING
           }
           env_vars["BUNDLER_LIB_PATH"] = "#{bundler_path}" if ruby_version.ruby_version == "1.8.7"
 
-          # need to setup environment for couchbase gem
-          libcouchbase_dir = "/app/vendor/couchbase"
-          install_libcouchbase(libcouchbase_dir)
-          pipe("#{bundle_bin} config build.couchbase --with-libcouchbase-dir=#{libcouchbase_dir}", env: env_vars, user_env: true)
+          pipe("#{bundle_bin} config build.couchbase --with-libcouchbase-dir=/app/vendor/couchbase", env: env_vars, user_env: true)
 
           puts "Running: #{bundle_command}"
           instrument "ruby.bundle_install" do
